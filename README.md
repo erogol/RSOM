@@ -3,9 +3,9 @@ Rectifying Self Organizing Map (RSOM)
 
 Implemented and designed by <a href='http://www.erengolge.com'>Eren Golge</a> for the work "Gölge, E., & Duygulu, P.. ConceptMap:Mining noisy web data for concept learning , The European Conference on Computer Vision (ECCV) 2014." 
 
-RSOM is an algorithm as an extension of well-known Self Organizing Map (SOM) that is able to detect outlier clusters and the instances additional as it mimics the clustering features of SOM
+RSOM is an algorithm as an extension of well-known Self Organizing Map (SOM). It mimics SOM clustering and additionally detects outliers in the given dataset in the cluster level or instance level.
 
-Example call for the provided code.
+Example call below
 
 <pre>
 from sklearn import datasets
