@@ -5,7 +5,11 @@ Implemented and designed by <a href='http://www.erengolge.com'>Eren Golge</a> fo
 
 RSOM is an algorithm as an extension of well-known Self Organizing Map (SOM). It mimics SOM clustering and additionally detects outliers in the given dataset in the cluster level or instance level.
 
-Example call below
+Example call below with differetn commented call alternative.
+
+There are two different base libraries utilized by the code. Scipy implementation is designed for small scale problems and Theano version is for large scale problems which GPU utilization might help.
+
+You can use this code for only SOM clustering as well. Up to my knowledge, it is the only SOM library designed for large data-sets.
 
 <pre>
 from sklearn import datasets
