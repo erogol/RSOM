@@ -3,10 +3,8 @@ Rectifying Self Organizing Map (RSOM)
 
 For More Detail Visit: <a href='http://www.erengolge.com/pub_sites/concept_map.html'> Project Page </a>.
 
-<div class="image" align='center'>
-				<img src="http://i57.tinypic.com/2nv7yon.gif" alt="Image and video hosting by TinyPic" width="50%" height="50%"/>
-				<div align="bottom"><b>CMAP in runtime</b>. It shows the unit updates from iteration 1 to saturation where the units are precisely defined.</div>
-				</div>
+<img src="http://i57.tinypic.com/2nv7yon.gif" alt="Image and video hosting by TinyPic" width="50%" height="50%"/>
+<div align="bottom"><b>CMAP in runtime</b>. It shows the unit updates from iteration 1 to saturation where the units are precisely defined.</div>
 
 
 Implemented and designed by <a href='http://www.erengolge.com'>Eren Golge</a> for the work <b>"Gölge, E., & Duygulu, P.. ConceptMap:Mining noisy web data for concept learning , The European Conference on Computer Vision (ECCV) 2014." </b>
