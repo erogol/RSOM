@@ -12,6 +12,6 @@ Also used in <b>"Gölge, E., & Duygulu, P.. ConceptMap:Mining noisy web data for
 
 Visuals are generated using ```sample_run.py``` and digits dataset.
 
-<img src="https://github.com/egolge/RSOM/blob/master/visuals/2d_projection.png" width="600">
+<img src="https://github.com/erogol/RSOM/blob/master/visuals/2d_projection.png" width="600">
 
-<img src="https://github.com/egolge/RSOM/blob/master/visuals/som_latice.png" width="600">
+<img src="https://github.com/erogol/RSOM/blob/master/visuals/som_latice.png" width="600">
