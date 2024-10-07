@@ -26,11 +26,19 @@ data = load_digits().data
 data = torch.from_numpy(data).float()
 print(data.shape)
 
-# Initialize SOM
-som = RSOM(data, alpha_max=0.05, num_units=49)
+# standardize the data
+data = (data - data.mean(axis=0)) / (data.std(axis=0) - 1e-8)
 
-# Train SOM
-som.train_batch(num_epoch=1000, verbose=True)
+# Initialize SOM
+som = RSOM(
+    data,
+    alpha_max=0.001,
+    alpha_min=0.0005,
+    num_units=49,
+)
+
+# Train batch SOM
+som.train_batch(num_epoch=10000, verbose=True, batch_size=128)
 
 # Get salient instances and units
 salient_insts = som.salient_insts()

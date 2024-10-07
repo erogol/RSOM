@@ -29,10 +29,17 @@ TO DO:
 -> UPDATE only winners
 """
 
+import logging
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 class RSOM(torch.nn.Module):
@@ -49,7 +56,30 @@ class RSOM(torch.nn.Module):
         set_inunit_outlier_det: bool = True,
         outlier_unit_thresh: float = 0.5,
         inunit_outlier_thresh: float = 95,
+        dist: str = "euclidean",
+        log_full_data_cost: bool = False,
+        steps_to_full_data_cost: int = -1,  # TODO: number of steps to compute full data cost
     ):
+        """Rectifying Self Organizing Maps. RSOM is a clustering and outlier detection method that is predicated with old Self Organizing Maps.
+
+        Args:
+            data: Input data.
+            num_units: Number of units.
+            height: Height of the map.
+            width: Width of the map.
+            alpha_max: Maximum learning rate.
+            alpha_min: Minimum learning rate.
+            set_count_activations: Whether to count activations.
+            set_outlier_unit_det: Whether to detect outlier units.
+            set_inunit_outlier_det: Whether to detect in-unit outliers.
+            outlier_unit_thresh: Threshold for outlier unit detection.
+            inunit_outlier_thresh: Threshold for in-unit outlier detection.
+            dist: Distance metric. Can be "euclidean" or "cosine".
+            log_full_data_cost: Whether to log full data cost or use exponential moving average. Computing full data
+                cost is expensive and might cause OOM.
+
+        """
+
         super(RSOM, self).__init__()
         self.X = data
         self.num_units = num_units
@@ -62,12 +92,17 @@ class RSOM(torch.nn.Module):
         self.set_inunit_outlier_det = set_inunit_outlier_det
         self.outlier_unit_thresh = outlier_unit_thresh
         self.inunit_outlier_thresh = inunit_outlier_thresh
+        self.log_full_data_cost = log_full_data_cost
 
         self._estimate_map_shape()
         self.data_dim = self.X.shape[1]
 
         self.W = torch.nn.Parameter(torch.randn(self.num_units, self.data_dim))
         self._normalize_weights()
+
+        self.distance_metric = dist
+        if self.distance_metric not in ["euclidean", "cosine"]:
+            raise ValueError("distance_metric must be either 'euclidean' or 'cosine'")
 
         self.activations = torch.zeros(self.num_units)
         self.unit_saliency_coeffs = torch.zeros(self.num_units)
@@ -89,13 +124,29 @@ class RSOM(torch.nn.Module):
             )
             self.width = int(np.ceil(self.num_units / self.height))
             self.num_units = self.height * self.width
-        print(f"Estimated map size is -> height = {self.height}, width = {self.width}")
+        logging.info(
+            f"Estimated map size is -> height = {self.height}, width = {self.width}"
+        )
 
     def unit_cords(self, index: int) -> Tuple[int, int]:
         return index % self.width, index // self.width
 
-    def _euq_dist(self, X2: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
-        return -2 * torch.mm(self.W, X.t()) + (self.W**2).sum(1)[:, None] + X2.t()
+    def _calc_distance(self, X, X2=None):
+        if self.distance_metric == "euclidean":
+            return self._euclidean_distance(X, X2)
+        elif self.distance_metric == "cosine":
+            return self._cosine_distance(X)
+
+    def _euclidean_distance(self, X, X2=None):
+        if X2 is None:
+            X2 = (X**2).sum(1)[:, None]
+        W2 = (self.W**2).sum(1)[:, None]
+        return -2 * torch.mm(self.W, X.t()) + W2 + X2.t()
+
+    def _cosine_distance(self, X):
+        X_norm = X / torch.norm(X, dim=1, keepdim=True)
+        W_norm = self.W / torch.norm(self.W, dim=1, keepdim=True)
+        return 1 - torch.mm(W_norm, X_norm.t())
 
     def find_neighbors(self, unit_id: int, radius: int) -> torch.Tensor:
         neighbors = torch.zeros(1, self.num_units)
@@ -121,20 +172,15 @@ class RSOM(torch.nn.Module):
         BMU = (D == D.min(0)[0]).float().t()
         return BMU, D
 
-    def assing_to_units(
-        self, X: Optional[torch.Tensor] = None
-    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+    def assing_to_units(self, X=None):
         if X is None:
-            X = self.X
-        X2 = (X**2).sum(1).unsqueeze(1)
-        D = -2 * torch.mm(self.W, X.t()) + (self.W**2).sum(1).unsqueeze(1) + X2.t()
-        ins_unit_assign = D.argmin(dim=0)
-        ins_unit_dist = D[ins_unit_assign, torch.arange(X.shape[0])]
-
-        if X is self.X:
-            self.ins_unit_assign = ins_unit_assign
-            self.ins_unit_dist = ins_unit_dist
+            D = self._calc_distance(self.X)
+            self.ins_unit_assign = D.argmin(axis=0)
+            self.ins_unit_dist = D[self.ins_unit_assign, torch.arange(self.X.shape[0])]
         else:
+            D = self._calc_distance(X)
+            ins_unit_assign = D.argmin(axis=0)
+            ins_unit_dist = D[ins_unit_assign, torch.arange(X.shape[0])]
             return ins_unit_assign, ins_unit_dist
 
     def set_params(self, num_epoch: int) -> dict:
@@ -167,28 +213,40 @@ class RSOM(torch.nn.Module):
         batch_size: Optional[int] = None,
         verbose: bool = True,
     ):
+        """
+        Args:
+            num_epoch: number of epochs to train
+            batch_size: number of samples to train in one batch
+            verbose: if True, print the progress of training
+        """
         if num_epoch is None:
             num_epoch = 500 * self.num_units
 
         if batch_size is None:
             batch_size = self.X.shape[0]
 
-        print("Learning...")
+        logger.info("Learning...")
         U = self.set_params(num_epoch)
-        X2 = (self.X**2).sum(1).unsqueeze(1)
+
+        X2 = None
+        if batch_size == self.X.shape[0]:
+            X2 = (self.X**2).sum(1).unsqueeze(1)
 
         for epoch in range(num_epoch):
-            print(f"Epoch --- {epoch}")
+            logger.info(f"Epoch --- {epoch}")
             update_rate = U["H_maps"][epoch]
             learn_rate = U["alphas"][epoch]
 
             shuffle_indices = torch.randperm(self.X.shape[0])
             win_counts = torch.zeros(self.num_units)
 
-            for batch_indices in torch.split(shuffle_indices, batch_size):
-                batch_data = self.X[batch_indices]
-                D = self._euq_dist(X2[batch_indices], batch_data)
-                BMU = (D == D.min(0)[0]).float().t()
+            batches = torch.split(shuffle_indices, batch_size)
+            num_steps = len(batches)
+
+            for step, batch_indices in enumerate(batches):
+                batch_data = self.X[batch_indices, :]
+                D = self._calc_distance(batch_data, X2)
+                BMU = (D == D.min(0)[0][None, :]).float().t()
 
                 win_counts += BMU.sum(dim=0)
 
@@ -198,15 +256,15 @@ class RSOM(torch.nn.Module):
                 A = torch.mm(BMU, update_rate)
                 S = A.sum(0)
                 non_zeros = S.nonzero().squeeze()
+
                 self.W.data[non_zeros] = torch.mm(A[:, non_zeros].t(), batch_data) / S[
                     non_zeros
                 ].unsqueeze(1)
 
+                self._print_cost(X2, D, epoch, num_epoch, step, num_steps)
+
             if self.set_outlier_unit_det:
                 self._update_unit_saliency(win_counts, update_rate, learn_rate)
-
-            if verbose and (epoch % 1 == 0):
-                self._print_cost(X2, epoch, num_epoch)
 
         if self.set_count_activations:
             self.activations /= self.activations.sum()
@@ -219,97 +277,36 @@ class RSOM(torch.nn.Module):
         if self.set_inunit_outlier_det:
             self._find_inunit_outliers()
 
-    def _print_cost(self, X2: torch.Tensor, epoch: int, num_epoch: int):
-        D = self._euq_dist(X2, self.X)
-        cost = torch.norm(D.min(0)[0], p=1) / self.X.shape[0]
-        print(f"epoch {epoch} of {num_epoch} cost: {cost.item()}")
-
-    def set_params(self, num_epoch: int) -> dict:
-        U = {"alphas": [], "H_maps": [], "radiuses": []}
-
-        dist_map = torch.zeros(self.num_units, self.num_units)
-        radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
-        for u in range(self.num_units):
-            dist_map[u, :] = self.find_neighbors(u, self.num_units)
-
-        for epoch in range(num_epoch):
-            alpha = self.alpha_max - self.alpha_min
-            alpha = alpha * (num_epoch - epoch) / num_epoch + self.alpha_min
-            radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
-            radius = radius * (num_epoch - epoch) / (num_epoch - 1) - 1
-            radius = max(radius, 0)
-
-            neigh_updt_map = alpha * (1 - dist_map / float((1 + radius)))
-            neigh_updt_map[dist_map > radius] = 0
-
-            U["H_maps"].append(neigh_updt_map)
-            U["alphas"].append(alpha)
-            U["radiuses"].append(radius)
-
-        return U
-
-    def train_batch(
+    def _print_cost(
         self,
-        num_epoch: Optional[int] = None,
-        batch_size: Optional[int] = None,
-        verbose: bool = True,
+        X2: torch.Tensor,
+        D: torch.Tensor,
+        epoch: int,
+        num_epoch: int,
+        step: int,
+        num_steps: int,
     ):
-        if num_epoch is None:
-            num_epoch = 500 * self.num_units
+        batch_cost = D.min(0)[0].mean()
 
-        if batch_size is None:
-            batch_size = self.X.shape[0]
+        if self.log_full_data_cost:
+            # TODO: handle when data is too large
+            if self.distance_metric == "euclidean":
+                D = self._calc_distance(self.X, X2)
+                cost = torch.norm(D.min(0)[0], p=1) / self.X.shape[0]
+            elif self.distance_metric == "cosine":
+                D = self._calc_distance(self.X)
+                cost = D.min(0)[0].mean()  # Average minimum cosine distance
+        else:
+            # exponential moving average cost
+            if not hasattr(self, "avg_cost"):
+                self.avg_cost = batch_cost
+            else:
+                self.avg_cost = self.avg_cost * 0.01 + batch_cost * 0.99
+            cost = self.avg_cost
 
-        print("Learning...")
-        U = self.set_params(num_epoch)
-        X2 = (self.X**2).sum(1).unsqueeze(1)
-
-        for epoch in range(num_epoch):
-            print(f"Epoch --- {epoch}")
-            update_rate = U["H_maps"][epoch]
-            learn_rate = U["alphas"][epoch]
-
-            shuffle_indices = torch.randperm(self.X.shape[0])
-            win_counts = torch.zeros(self.num_units)
-
-            for batch_indices in torch.split(shuffle_indices, batch_size):
-                batch_data = self.X[batch_indices]
-                D = self._euq_dist(X2[batch_indices], batch_data)
-                BMU = (D == D.min(0)[0]).float().t()
-
-                win_counts += BMU.sum(dim=0)
-
-                if self.set_count_activations:
-                    self.activations += win_counts
-
-                A = torch.mm(BMU, update_rate)
-                S = A.sum(0)
-                non_zeros = S.nonzero().squeeze()
-                self.W.data[non_zeros] = torch.mm(A[:, non_zeros].t(), batch_data) / S[
-                    non_zeros
-                ].unsqueeze(1)
-
-            if self.set_outlier_unit_det:
-                self._update_unit_saliency(win_counts, update_rate, learn_rate)
-
-            if verbose and (epoch % 1 == 0):
-                self._print_cost(X2, epoch, num_epoch)
-
-        if self.set_count_activations:
-            self.activations /= self.activations.sum()
-
-        self.assing_to_units()
-
-        if self.set_outlier_unit_det:
-            self._find_outlier_units()
-
-        if self.set_inunit_outlier_det:
-            self._find_inunit_outliers()
-
-    def _print_cost(self, X2: torch.Tensor, epoch: int, num_epoch: int):
-        D = self._euq_dist(X2, self.X)
-        cost = torch.norm(D.min(0)[0], p=1) / self.X.shape[0]
-        print(f"epoch {epoch} of {num_epoch} cost: {cost.item()}")
+        logger.info(
+            f"epoch {epoch} / {num_epoch} -- step {step} / {num_steps} -- avg-cost: {cost.item():.6f} -- batch-cost: {batch_cost.item():.6f}"
+        )
 
     def _update_unit_saliency(
         self, win_counts: torch.Tensor, update_rate: torch.Tensor, learn_rate: float
