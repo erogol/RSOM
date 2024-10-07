@@ -35,7 +35,7 @@ import numpy as np
 import torch
 
 
-class SOM(torch.nn.Module):
+class RSOM(torch.nn.Module):
     def __init__(
         self,
         data: torch.Tensor,
@@ -50,7 +50,7 @@ class SOM(torch.nn.Module):
         outlier_unit_thresh: float = 0.5,
         inunit_outlier_thresh: float = 95,
     ):
-        super(SOM, self).__init__()
+        super(RSOM, self).__init__()
         self.X = data
         self.num_units = num_units
         self.height = height

@@ -7,7 +7,7 @@ from PIL import Image
 from sklearn.datasets import load_digits
 from sklearn.decomposition import PCA
 
-from som import SOM
+from rsom import RSOM
 
 
 def get_node_coordinates(som, pca):
@@ -27,7 +27,7 @@ data = torch.from_numpy(data).float()
 print(data.shape)
 
 # Initialize SOM
-som = SOM(data, alpha_max=0.05, num_units=49)
+som = RSOM(data, alpha_max=0.05, num_units=49)
 
 # Train SOM
 som.train_batch(num_epoch=1000, verbose=True)

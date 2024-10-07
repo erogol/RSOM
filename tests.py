@@ -2,13 +2,13 @@ import unittest
 
 import torch
 
-from som import SOM
+from rsom import RSOM
 
 
 class TestSOM(unittest.TestCase):
     def setUp(self):
         self.data = torch.randn(100, 10)
-        self.som = SOM(self.data, num_units=25, height=5, width=5)
+        self.som = RSOM(self.data, num_units=25, height=5, width=5)
 
     def test_init(self):
         self.assertEqual(self.som.num_units, 25)
