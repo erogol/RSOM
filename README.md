@@ -2,6 +2,7 @@ Rectifying Self Organizing Map (RSOM)
 ===============================
 
 📎 **Paper 1:** Gölge, E., & Duygulu, P. 2013. Rectifying Self Organizing Maps for Automatic Concept Learning from Web Images
+
 📎 **Paper 2:** Gölge, E., & Duygulu, P.. ConceptMap:Mining noisy web data for concept learning , The European Conference on Computer Vision (ECCV) 2014.
 
 RSOM is an algorithm as an extension of well-known Self Organizing Map (SOM). It mimics SOM clustering and additionally detects outliers in the given dataset in the cluster level or instance level.
