@@ -32,10 +32,6 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 
@@ -181,8 +177,7 @@ class RSOM(torch.nn.Module):
     def best_match(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if X.dim() == 1:
             X = X.unsqueeze(0)
-        X2 = (X**2).sum(1).unsqueeze(1)
-        D = -2 * torch.mm(self.W, X.t()) + (self.W**2).sum(1).unsqueeze(1) + X2.t()
+        D = self._calc_distance(X)
         BMU = (D == D.min(0)[0]).float().t()
         return BMU, D
 
@@ -197,8 +192,15 @@ class RSOM(torch.nn.Module):
             ins_unit_dist = D[ins_unit_assign, torch.arange(X.shape[0])]
             return ins_unit_assign, ins_unit_dist
 
+    @staticmethod
+    def _neighborhood_map(dist_map: torch.Tensor, radius: int) -> torch.Tensor:
+        # The neighbourhood map does not include the learning rate.
+        neigh_updt_map = 1 - dist_map / float(1 + radius)
+        neigh_updt_map[dist_map > radius] = 0
+        return neigh_updt_map
+
     def set_params(self, num_epoch: int) -> dict:
-        U = {"alphas": [], "H_maps": [], "radiuses": []}
+        U = {"alphas": [], "radiuses": []}
 
         dist_map = torch.zeros(self.num_units, self.num_units)
         max_radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
@@ -212,14 +214,11 @@ class RSOM(torch.nn.Module):
             radius = max_radius * (num_epoch - epoch) / max(num_epoch - 1, 1)
             radius = max(int(np.ceil(radius)) - 1, 0)
 
-            # The neighbourhood map does not include the learning rate.
-            neigh_updt_map = 1 - dist_map / float((1 + radius))
-            neigh_updt_map[dist_map > radius] = 0
-
-            U["H_maps"].append(neigh_updt_map)
             U["alphas"].append(alpha)
             U["radiuses"].append(radius)
 
+        # train_batch computes the neighbourhood map of each epoch from dist_map.
+        U["dist_map"] = dist_map
         return U
 
     def train_batch(
@@ -240,7 +239,8 @@ class RSOM(torch.nn.Module):
         Args:
             num_epoch: number of epochs to train
             batch_size: number of samples to train in one batch
-            verbose: if True, print the progress of training
+            verbose: if True, log the progress of training at level INFO with the logging module. The
+                module does not configure logging: call logging.basicConfig(level=logging.INFO) to see it.
         """
         if num_epoch is None:
             num_epoch = 500 * self.num_units
@@ -248,7 +248,8 @@ class RSOM(torch.nn.Module):
         if batch_size is None:
             batch_size = self.X.shape[0]
 
-        logger.info("Learning...")
+        if verbose:
+            logger.info("Learning...")
         U = self.set_params(num_epoch)
 
         X2 = None
@@ -257,8 +258,9 @@ class RSOM(torch.nn.Module):
             X2 = (self.X**2).sum(1).unsqueeze(1)
 
         for epoch in range(num_epoch):
-            logger.info(f"Epoch --- {epoch}")
-            update_rate = U["H_maps"][epoch]
+            if verbose:
+                logger.info(f"Epoch --- {epoch}")
+            update_rate = self._neighborhood_map(U["dist_map"], U["radiuses"][epoch])
             learn_rate = U["alphas"][epoch]
 
             shuffle_indices = torch.randperm(self.X.shape[0])
@@ -289,7 +291,8 @@ class RSOM(torch.nn.Module):
                     self.W.data[non_zeros], means, step_size
                 )
 
-                self._print_cost(X2, D, epoch, num_epoch, step, num_steps)
+                if verbose:
+                    self._print_cost(X2, D, epoch, num_epoch, step, num_steps)
 
             if self.set_outlier_unit_det:
                 # h of paper Eq. 2 includes the learning rate.
@@ -332,7 +335,7 @@ class RSOM(torch.nn.Module):
             if not hasattr(self, "avg_cost"):
                 self.avg_cost = batch_cost
             else:
-                self.avg_cost = self.avg_cost * 0.01 + batch_cost * 0.99
+                self.avg_cost = self.avg_cost * 0.99 + batch_cost * 0.01
             cost = self.avg_cost
 
         logger.info(

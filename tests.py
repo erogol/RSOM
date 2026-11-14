@@ -85,7 +85,6 @@ class TestSOM(unittest.TestCase):
     def test_set_params(self):
         U = self.som.set_params(10)
         self.assertEqual(len(U["alphas"]), 10)
-        self.assertEqual(len(U["H_maps"]), 10)
         self.assertEqual(len(U["radiuses"]), 10)
 
     def test_train_batch(self):
@@ -279,3 +278,68 @@ class TestMapShape(unittest.TestCase):
             som = RSOM(X, num_units=49)
         self.assertEqual(som.num_units, 52)
         self.assertIn("52", "\n".join(logs.output))
+
+
+class TestSmallPoints(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(0)
+        self.data = torch.randn(100, 10)
+        self.logger = logging.getLogger(RSOM.__module__)
+
+    def test_cost_moving_average_keeps_most_of_the_old_value(self):
+        som = RSOM(self.data, num_units=4, height=2, width=2)
+        som._print_cost(None, torch.full((4, 5), 1.0), 0, 1, 0, 2)
+        som._print_cost(None, torch.full((4, 5), 2.0), 0, 1, 1, 2)
+        self.assertAlmostEqual(float(som.avg_cost), 0.99 * 1.0 + 0.01 * 2.0, places=5)
+
+    def test_verbose_false_is_silent(self):
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        old_level = self.logger.level
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.DEBUG)
+        try:
+            som = RSOM(self.data, num_units=25, height=5, width=5)
+            records.clear()
+            som.train_batch(num_epoch=3, batch_size=20, verbose=False)
+            self.assertEqual(len(records), 0)
+            som.train_batch(num_epoch=1, verbose=True)
+            self.assertGreater(len(records), 0)
+        finally:
+            self.logger.removeHandler(handler)
+            self.logger.setLevel(old_level)
+
+    def test_best_match_uses_the_cosine_distance(self):
+        som = RSOM(self.data, num_units=25, height=5, width=5, dist="cosine")
+        X = self.data[:7] * 3
+        BMU, D = som.best_match(X)
+        W = som.W.detach()
+        expected = 1 - (W / W.norm(dim=1, keepdim=True)) @ (
+            X / X.norm(dim=1, keepdim=True)
+        ).t()
+        self.assertTrue(torch.allclose(D, expected, atol=1e-5))
+        self.assertTrue(torch.equal(BMU.argmax(1), expected.argmin(0)))
+
+    def test_set_params_does_not_store_one_map_per_epoch(self):
+        som = RSOM(self.data, num_units=25, height=5, width=5)
+        U = som.set_params(200)
+        self.assertNotIn("H_maps", U)
+        self.assertEqual(len(U["alphas"]), 200)
+        self.assertEqual(len(U["radiuses"]), 200)
+        neigh_map = som._neighborhood_map(U["dist_map"], U["radiuses"][0])
+        self.assertEqual(neigh_map.shape, (25, 25))
+        # The map does not include the learning rate.
+        self.assertTrue(torch.equal(neigh_map.diagonal(), torch.ones(25)))
+
+    def test_import_does_not_configure_logging(self):
+        module = sys.modules[RSOM.__module__]
+        code = f"import logging, {module.__name__}; print(len(logging.getLogger().handlers))"
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(module.__file__)),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
