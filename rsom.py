@@ -255,12 +255,13 @@ class RSOM(torch.nn.Module):
             for step, batch_indices in enumerate(batches):
                 batch_data = self.X[batch_indices, :]
                 D = self._calc_distance(batch_data, X2)
-                BMU = (D == D.min(0)[0][None, :]).float().t()
-
-                win_counts += BMU.sum(dim=0)
+                # One winner for each sample, so a tie is not counted two times.
+                BMU = torch.nn.functional.one_hot(D.argmin(0), self.num_units).float()
+                batch_wins = BMU.sum(dim=0)
+                win_counts += batch_wins
 
                 if self.set_count_activations:
-                    self.activations += win_counts
+                    self.activations += batch_wins
 
                 A = torch.mm(BMU, update_rate)
                 S = A.sum(0)

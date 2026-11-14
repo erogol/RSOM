@@ -171,3 +171,32 @@ class TestAlphaAndMiniBatch(unittest.TestCase):
         som = _build(self.X[:101], 0, num_units=25, height=5, width=5)
         som.train_batch(num_epoch=6, batch_size=4, verbose=False)
         self.assertTrue(torch.isfinite(som.W).all())
+
+
+class TestActivationCounts(unittest.TestCase):
+    def test_each_win_is_counted_one_time(self):
+        X = _digits()
+        som = _build(
+            X,
+            0,
+            num_units=49,
+            height=7,
+            width=7,
+            set_outlier_unit_det=False,
+            set_inunit_outlier_det=False,
+        )
+        wins = []
+        calc_distance = som._calc_distance
+
+        def spy(*args, **kw):
+            D = calc_distance(*args, **kw)
+            wins.append(torch.bincount(D.argmin(0), minlength=som.num_units))
+            return D
+
+        som._calc_distance = spy
+        som.train_batch(num_epoch=2, batch_size=128, verbose=False)
+        # The last call is the final assignment, after the training.
+        true_wins = torch.stack(wins[:-1]).sum(0).float()
+        self.assertEqual(true_wins.sum().item(), 2 * X.shape[0])
+        expected = true_wins / true_wins.sum()
+        self.assertLess((som.activations - expected).abs().max().item(), 1e-6)
