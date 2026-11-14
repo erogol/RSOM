@@ -52,10 +52,11 @@ class RSOM(torch.nn.Module):
         set_outlier_unit_det: bool = True,
         set_inunit_outlier_det: bool = True,
         outlier_unit_thresh: float = 0.5,
-        inunit_outlier_thresh: float = 95,
+        inunit_outlier_thresh: Optional[float] = None,
         dist: str = "euclidean",
         log_full_data_cost: bool = False,
         steps_to_full_data_cost: int = -1,  # TODO: number of steps to compute full data cost
+        inunit_whisker_factor: float = 1.5,
     ):
         """Rectifying Self Organizing Maps. RSOM is a clustering and outlier detection method that is predicated with old Self Organizing Maps.
 
@@ -73,10 +74,17 @@ class RSOM(torch.nn.Module):
             set_outlier_unit_det: Whether to detect outlier units.
             set_inunit_outlier_det: Whether to detect in-unit outliers.
             outlier_unit_thresh: Threshold for outlier unit detection.
-            inunit_outlier_thresh: Threshold for in-unit outlier detection.
+            inunit_outlier_thresh: Percentile (0-100) for the in-unit percentile rule: a sample is an outlier
+                when its distance to its unit is above this percentile of the distances in the unit. This rule
+                always flags about (100 - percentile) % of each unit. The default None selects the box-plot
+                rule (see inunit_whisker_factor).
             dist: Distance metric. Can be "euclidean" or "cosine".
             log_full_data_cost: Whether to log full data cost or use exponential moving average. Computing full data
                 cost is expensive and might cause OOM.
+            inunit_whisker_factor: Factor of the box-plot rule, which is the default in-unit rule: a sample is
+                an outlier when its distance to its unit is above the Tukey upper whisker
+                Q3 + factor * (Q3 - Q1) of the distances in the unit. The rule uses the distances as stored in
+                ins_unit_dist (the squared distance for dist="euclidean").
 
         """
 
@@ -92,6 +100,7 @@ class RSOM(torch.nn.Module):
         self.set_inunit_outlier_det = set_inunit_outlier_det
         self.outlier_unit_thresh = outlier_unit_thresh
         self.inunit_outlier_thresh = inunit_outlier_thresh
+        self.inunit_whisker_factor = inunit_whisker_factor
         self.log_full_data_cost = log_full_data_cost
 
         self._estimate_map_shape()
@@ -355,10 +364,13 @@ class RSOM(torch.nn.Module):
 
         for i in torch.unique(self.ins_unit_assign):
             indices = torch.where(self.ins_unit_assign == i)[0]
-            unit_thresh = torch.quantile(
-                self.ins_unit_dist[indices], self.inunit_outlier_thresh / 100
-            )
-            outlier_insts = indices[self.ins_unit_dist[indices] > unit_thresh]
+            dists = self.ins_unit_dist[indices]
+            if self.inunit_outlier_thresh is None:
+                q1, q3 = torch.quantile(dists, torch.tensor([0.25, 0.75]))
+                unit_thresh = q3 + self.inunit_whisker_factor * (q3 - q1)
+            else:
+                unit_thresh = torch.quantile(dists, self.inunit_outlier_thresh / 100)
+            outlier_insts = indices[dists > unit_thresh]
             self.inst_saliency[outlier_insts] = False
 
     def salient_inst_index(self) -> torch.Tensor:

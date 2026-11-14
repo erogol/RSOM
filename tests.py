@@ -230,3 +230,35 @@ class TestUnitSaliency(unittest.TestCase):
         som.train_batch(num_epoch=5, batch_size=256, verbose=False)
         self.assertAlmostEqual(som.unit_saliency_coeffs.sum().item(), 1.0, places=4)
         self.assertEqual(som.unit_saliency.shape, (49,))
+
+
+class TestInUnitOutliers(unittest.TestCase):
+    """Default in-unit rule: Tukey upper whisker. Percentile rule on request."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(0)
+        centers = rng.uniform(-6, 6, size=(5, 10))
+        X = centers[rng.integers(0, 5, 2000)] + rng.normal(0, 1, (2000, 10))
+        cls.X = torch.from_numpy(X.astype(np.float32))
+
+    def _flagged_share(self, **kw):
+        som = _build(
+            self.X, 0, num_units=49, height=7, width=7, set_outlier_unit_det=False, **kw
+        )
+        som.train_batch(num_epoch=50, verbose=False)
+        return (~som.inst_saliency).float().mean().item()
+
+    def test_default_rule_flags_few_samples_of_clean_data(self):
+        self.assertLess(self._flagged_share(), 0.03)
+
+    def test_percentile_rule_is_still_available(self):
+        share = self._flagged_share(inunit_outlier_thresh=95)
+        self.assertGreater(share, 0.04)
+        self.assertLess(share, 0.08)
+
+    def test_larger_whisker_factor_flags_fewer_samples(self):
+        self.assertLess(
+            self._flagged_share(inunit_whisker_factor=3.0),
+            self._flagged_share(inunit_whisker_factor=0.5),
+        )
