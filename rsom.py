@@ -217,7 +217,8 @@ class RSOM(torch.nn.Module):
         """
         Full-batch mode (batch_size is None or equal to the number of samples) is the classic batch SOM:
         each epoch sets each unit to the neighbourhood-weighted mean of the data. This mode does not use
-        alpha_max and alpha_min for the weights.
+        alpha_max and alpha_min for the weights. In the two modes, alpha sets the weight of each epoch
+        in the unit saliency scores (rho = 1 / alpha, paper Eq. 3), so later epochs count more.
 
         Mini-batch mode moves each unit toward the neighbourhood-weighted mean M of the batch:
         W <- W + alpha * (M - W). alpha decreases linearly from alpha_max toward alpha_min.
@@ -277,6 +278,7 @@ class RSOM(torch.nn.Module):
                 self._print_cost(X2, D, epoch, num_epoch, step, num_steps)
 
             if self.set_outlier_unit_det:
+                # h of paper Eq. 2 includes the learning rate.
                 self._update_unit_saliency(
                     win_counts, learn_rate * update_rate, learn_rate
                 )
@@ -326,11 +328,15 @@ class RSOM(torch.nn.Module):
     def _update_unit_saliency(
         self, win_counts: torch.Tensor, update_rate: torch.Tensor, learn_rate: float
     ):
-        excitations = (update_rate * win_counts.unsqueeze(1)).sum(dim=0) / learn_rate
-        excitations = excitations / excitations.sum()
-        single_excitations = win_counts * learn_rate
-        single_excitations = single_excitations / single_excitations.sum()
-        self.unit_saliency_coeffs += excitations + single_excitations
+        """Add the excitation of one epoch, paper Eq. 3-4: e_j += rho * (beta_j + z_j).
+
+        rho is 1 / learn_rate. z_j (win_counts) is the win count of unit j in the epoch. beta_j is the
+        sum of h(j, v) * z_v over the winners v other than unit j, where h is update_rate.
+        """
+        neigh = update_rate.clone()
+        neigh.fill_diagonal_(0)
+        beta = torch.mv(neigh, win_counts)
+        self.unit_saliency_coeffs += (beta + win_counts) / learn_rate
 
     def _find_outlier_units(self):
         self.unit_saliency_coeffs /= self.unit_saliency_coeffs.sum()

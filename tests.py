@@ -200,3 +200,33 @@ class TestActivationCounts(unittest.TestCase):
         self.assertEqual(true_wins.sum().item(), 2 * X.shape[0])
         expected = true_wins / true_wins.sum()
         self.assertLess((som.activations - expected).abs().max().item(), 1e-6)
+
+
+class TestUnitSaliency(unittest.TestCase):
+    """Paper Eq. 3-4: e_j += rho * (beta_j + z_j), rho = 1 / learning rate."""
+
+    def test_excitation_follows_paper_eq_3_and_4(self):
+        som = _build(torch.randn(40, 3), 0, num_units=4, height=2, width=2)
+        h = torch.tensor(
+            [
+                [1.0, 0.5, 0.5, 0.0],
+                [0.5, 1.0, 0.0, 0.5],
+                [0.5, 0.0, 1.0, 0.5],
+                [0.0, 0.5, 0.5, 1.0],
+            ]
+        )
+        z1 = torch.tensor([4.0, 0.0, 2.0, 0.0])
+        z2 = torch.tensor([1.0, 3.0, 0.0, 2.0])
+        som._update_unit_saliency(z1, h, 0.5)
+        som._update_unit_saliency(z2, h, 0.25)
+        # beta_j: sum of h(j, v) * z_v over the winners v other than j.
+        beta1 = torch.tensor([1.0, 2.0, 2.0, 1.0])
+        beta2 = torch.tensor([1.5, 1.5, 1.5, 1.5])
+        expected = (beta1 + z1) / 0.5 + (beta2 + z2) / 0.25
+        self.assertTrue(torch.allclose(som.unit_saliency_coeffs, expected))
+
+    def test_unit_scores_are_normalized_after_training(self):
+        som = _build(_digits(), 0, num_units=49, height=7, width=7)
+        som.train_batch(num_epoch=5, batch_size=256, verbose=False)
+        self.assertAlmostEqual(som.unit_saliency_coeffs.sum().item(), 1.0, places=4)
+        self.assertEqual(som.unit_saliency.shape, (49,))
