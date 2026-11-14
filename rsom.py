@@ -64,8 +64,11 @@ class RSOM(torch.nn.Module):
             num_units: Number of units. When height and width are given, it is set to height * width.
             height: Height of the map.
             width: Width of the map.
-            alpha_max: Maximum learning rate.
-            alpha_min: Minimum learning rate.
+            alpha_max: Learning rate at the first epoch.
+            alpha_min: Learning rate at the end of the linear decrease. In mini-batch mode, alpha is the
+                step size of each weight update: W <- W + alpha * (M - W), where M is the
+                neighbourhood-weighted mean of the batch. A larger alpha follows the last batches more
+                closely. Full-batch mode does not use alpha for the weights (see train_batch).
             set_count_activations: Whether to count activations.
             set_outlier_unit_det: Whether to detect outlier units.
             set_inunit_outlier_det: Whether to detect in-unit outliers.
@@ -195,7 +198,8 @@ class RSOM(torch.nn.Module):
             radius = max_radius * (num_epoch - epoch) / max(num_epoch - 1, 1)
             radius = max(int(np.ceil(radius)) - 1, 0)
 
-            neigh_updt_map = alpha * (1 - dist_map / float((1 + radius)))
+            # The neighbourhood map does not include the learning rate.
+            neigh_updt_map = 1 - dist_map / float((1 + radius))
             neigh_updt_map[dist_map > radius] = 0
 
             U["H_maps"].append(neigh_updt_map)
@@ -211,6 +215,13 @@ class RSOM(torch.nn.Module):
         verbose: bool = True,
     ):
         """
+        Full-batch mode (batch_size is None or equal to the number of samples) is the classic batch SOM:
+        each epoch sets each unit to the neighbourhood-weighted mean of the data. This mode does not use
+        alpha_max and alpha_min for the weights.
+
+        Mini-batch mode moves each unit toward the neighbourhood-weighted mean M of the batch:
+        W <- W + alpha * (M - W). alpha decreases linearly from alpha_max toward alpha_min.
+
         Args:
             num_epoch: number of epochs to train
             batch_size: number of samples to train in one batch
@@ -226,7 +237,8 @@ class RSOM(torch.nn.Module):
         U = self.set_params(num_epoch)
 
         X2 = None
-        if batch_size == self.X.shape[0]:
+        full_batch = batch_size >= self.X.shape[0]
+        if full_batch:
             X2 = (self.X**2).sum(1).unsqueeze(1)
 
         for epoch in range(num_epoch):
@@ -252,16 +264,21 @@ class RSOM(torch.nn.Module):
 
                 A = torch.mm(BMU, update_rate)
                 S = A.sum(0)
-                non_zeros = S.nonzero().squeeze()
+                non_zeros = S > 0
+                means = torch.mm(A[:, non_zeros].t(), batch_data)
+                means = means / S[non_zeros].unsqueeze(1)
 
-                self.W.data[non_zeros] = torch.mm(A[:, non_zeros].t(), batch_data) / S[
-                    non_zeros
-                ].unsqueeze(1)
+                step_size = 1.0 if full_batch else learn_rate
+                self.W.data[non_zeros] = torch.lerp(
+                    self.W.data[non_zeros], means, step_size
+                )
 
                 self._print_cost(X2, D, epoch, num_epoch, step, num_steps)
 
             if self.set_outlier_unit_det:
-                self._update_unit_saliency(win_counts, update_rate, learn_rate)
+                self._update_unit_saliency(
+                    win_counts, learn_rate * update_rate, learn_rate
+                )
 
         if self.set_count_activations:
             self.activations /= self.activations.sum()

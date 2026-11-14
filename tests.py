@@ -123,3 +123,51 @@ class TestRadiusSchedule(unittest.TestCase):
         self.assertTrue(np.isfinite(radiuses).all())
         som.train_batch(num_epoch=1, verbose=False)
         self.assertTrue(torch.isfinite(som.W).all())
+
+
+class TestAlphaAndMiniBatch(unittest.TestCase):
+    """Mini-batch rule: W <- W + alpha * (batch mean - W). Full batch: step 1."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.X = _digits()
+
+    def _train(self, seed=0, num_epoch=2, batch_size=128, **kw):
+        som = _build(self.X, seed, num_units=49, height=7, width=7, **kw)
+        w0 = som.W.detach().clone()
+        som.train_batch(num_epoch=num_epoch, batch_size=batch_size, verbose=False)
+        return som, w0
+
+    def test_alpha_changes_minibatch_weights(self):
+        a, _ = self._train(alpha_max=0.05, alpha_min=0.001)
+        b, _ = self._train(alpha_max=0.9, alpha_min=0.5)
+        self.assertGreater((a.W - b.W).abs().max().item(), 1e-2)
+
+    def test_alpha_is_the_minibatch_step_size(self):
+        # For a very small alpha, the weights move in proportion to alpha.
+        a, w0 = self._train(num_epoch=1, alpha_max=1e-4, alpha_min=1e-4)
+        b, _ = self._train(num_epoch=1, alpha_max=2e-4, alpha_min=2e-4)
+        ratio = (b.W.detach() - w0).norm() / (a.W.detach() - w0).norm()
+        self.assertAlmostEqual(ratio.item(), 2.0, delta=0.05)
+
+    def test_full_batch_weights_do_not_use_alpha(self):
+        a, _ = self._train(batch_size=None, num_epoch=10, alpha_max=0.05, alpha_min=0.001)
+        b, _ = self._train(batch_size=None, num_epoch=10, alpha_max=0.9, alpha_min=0.5)
+        self.assertLess((a.W - b.W).abs().max().item(), 1e-4)
+
+    def test_minibatch_quantization_error_is_close_to_full_batch(self):
+        qe = {}
+        for batch_size in (None, 128, 32):
+            runs = [
+                _qe(self._train(seed, 100, batch_size)[0], self.X) for seed in range(3)
+            ]
+            qe[batch_size] = float(np.mean(runs))
+        # 23.73 is the full-batch value of the code before this change.
+        self.assertLess(qe[None], 23.73 * 1.03)
+        self.assertLess(qe[128], 1.10 * qe[None])
+        self.assertLess(qe[32], 1.10 * qe[None])
+
+    def test_last_batch_with_one_sample(self):
+        som = _build(self.X[:101], 0, num_units=25, height=5, width=5)
+        som.train_batch(num_epoch=6, batch_size=4, verbose=False)
+        self.assertTrue(torch.isfinite(som.W).all())
