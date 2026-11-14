@@ -1,3 +1,4 @@
+import logging
 import os
 
 import matplotlib.pyplot as plt
@@ -8,6 +9,11 @@ from sklearn.datasets import load_digits
 from sklearn.decomposition import PCA
 
 from rsom import RSOM
+
+# rsom does not configure logging. Show the training progress of verbose=True.
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def get_node_coordinates(som, pca):
