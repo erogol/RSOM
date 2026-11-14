@@ -51,6 +51,18 @@ class TestSOM(unittest.TestCase):
         som.train_batch(num_epoch=3, verbose=False)
         self.assertEqual(som.ins_unit_assign.shape, (100,))
 
+    def test_given_height_and_width_log_no_warning(self):
+        records = []
+        handler = logging.Handler(level=logging.WARNING)
+        handler.emit = records.append
+        logger = logging.getLogger(RSOM.__module__)
+        logger.addHandler(handler)
+        try:
+            RSOM(self.data, height=5, width=5)
+        finally:
+            logger.removeHandler(handler)
+        self.assertEqual(records, [])
+
     def test_normalize_weights(self):
         self.som._normalize_weights()
         norms = torch.norm(self.som.W.data, dim=1)

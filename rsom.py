@@ -121,7 +121,6 @@ class RSOM(torch.nn.Module):
         self.W.data = self.W.data / torch.norm(self.W.data, dim=1, keepdim=True)
 
     def _estimate_map_shape(self):
-        requested_units = self.num_units
         if self.height is None or self.width is None:
             # Center the data for the shape estimate only. Without this, the
             # first singular value follows the data mean, not the data spread.
@@ -131,12 +130,12 @@ class RSOM(torch.nn.Module):
                 self.num_units, int(np.ceil(np.sqrt(self.num_units / ratio)))
             )
             self.width = int(np.ceil(self.num_units / self.height))
+            if self.height * self.width != self.num_units:
+                logger.warning(
+                    f"The map has {self.height * self.width} units (height = {self.height}, "
+                    f"width = {self.width}), not the requested {self.num_units}."
+                )
         self.num_units = self.height * self.width
-        if self.num_units != requested_units:
-            logger.warning(
-                f"The map has {self.num_units} units (height = {self.height}, "
-                f"width = {self.width}), not the requested {requested_units}."
-            )
 
     def unit_cords(self, index: int) -> Tuple[int, int]:
         return index % self.width, index // self.width
@@ -228,7 +227,7 @@ class RSOM(torch.nn.Module):
         verbose: bool = True,
     ):
         """
-        Full-batch mode (batch_size is None or equal to the number of samples) is the classic batch SOM:
+        Full-batch mode (batch_size is None or not below the number of samples) is the classic batch SOM:
         each epoch sets each unit to the neighbourhood-weighted mean of the data. This mode does not use
         alpha_max and alpha_min for the weights. In the two modes, alpha sets the weight of each epoch
         in the unit saliency scores (rho = 1 / alpha, paper Eq. 3), so later epochs count more.
