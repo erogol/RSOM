@@ -1,10 +1,35 @@
+import logging
+import os
+import subprocess
+import sys
 import unittest
+import warnings
 
+import numpy as np
 import torch
+from sklearn.datasets import load_digits
 
 from rsom import RSOM
 
 torch.set_num_threads(1)
+
+
+def _digits(standardize: bool = True) -> torch.Tensor:
+    raw = torch.from_numpy(load_digits().data).float()
+    if not standardize:
+        return raw
+    std = raw.std(0)
+    return (raw - raw.mean(0)) / torch.where(std > 0, std, torch.ones_like(std))
+
+
+def _qe(som: RSOM, X: torch.Tensor) -> float:
+    """Mean squared distance of each sample to its nearest unit."""
+    return torch.cdist(X, som.W.detach()).min(1)[0].pow(2).mean().item()
+
+
+def _build(X: torch.Tensor, seed: int, **kw) -> RSOM:
+    torch.manual_seed(seed)
+    return RSOM(X, **kw)
 
 
 class TestSOM(unittest.TestCase):
@@ -75,5 +100,26 @@ class TestSOM(unittest.TestCase):
         self.assertGreater(self.som.unit_saliency_coeffs.sum().item(), 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestRadiusSchedule(unittest.TestCase):
+    """The radius follows the 2014 schedule: ceil(r0 * (N - t) / (N - 1)) - 1."""
+
+    def test_radius_on_a_7x7_map(self):
+        som = _build(torch.randn(60, 4), 0, num_units=49, height=7, width=7)
+        radiuses = np.array(som.set_params(300)["radiuses"])
+        self.assertEqual(radiuses[0], 3)
+        self.assertEqual(radiuses[-1], 0)
+        self.assertEqual(int((radiuses >= 1).sum()), 201)
+
+    def test_radius_on_a_4x13_map(self):
+        som = _build(torch.randn(60, 4), 0, num_units=52, height=4, width=13)
+        radiuses = np.array(som.set_params(100)["radiuses"])
+        self.assertEqual(int((radiuses >= 1).sum()), 51)
+
+    def test_one_epoch_does_not_divide_by_zero(self):
+        som = _build(torch.randn(60, 4), 0, num_units=25, height=5, width=5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            radiuses = som.set_params(1)["radiuses"]
+        self.assertTrue(np.isfinite(radiuses).all())
+        som.train_batch(num_epoch=1, verbose=False)
+        self.assertTrue(torch.isfinite(som.W).all())

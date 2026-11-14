@@ -184,16 +184,16 @@ class RSOM(torch.nn.Module):
         U = {"alphas": [], "H_maps": [], "radiuses": []}
 
         dist_map = torch.zeros(self.num_units, self.num_units)
-        radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
+        max_radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
         for u in range(self.num_units):
             dist_map[u, :] = self.find_neighbors(u, self.num_units)
 
         for epoch in range(num_epoch):
             alpha = self.alpha_max - self.alpha_min
             alpha = alpha * (num_epoch - epoch) / num_epoch + self.alpha_min
-            radius = np.ceil(1 + np.floor(min(self.width, self.height) - 1) / 2) - 1
-            radius = radius * (num_epoch - epoch) / (num_epoch - 1) - 1
-            radius = max(radius, 0)
+            # 2014 schedule: the radius is a whole number that decreases to 0.
+            radius = max_radius * (num_epoch - epoch) / max(num_epoch - 1, 1)
+            radius = max(int(np.ceil(radius)) - 1, 0)
 
             neigh_updt_map = alpha * (1 - dist_map / float((1 + radius)))
             neigh_updt_map[dist_map > radius] = 0
