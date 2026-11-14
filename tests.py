@@ -262,3 +262,20 @@ class TestInUnitOutliers(unittest.TestCase):
             self._flagged_share(inunit_whisker_factor=3.0),
             self._flagged_share(inunit_whisker_factor=0.5),
         )
+
+
+class TestMapShape(unittest.TestCase):
+    def test_shape_estimate_centers_the_data(self):
+        raw = _digits(standardize=False)
+        som = _build(raw, 0, num_units=49)
+        self.assertEqual((som.height, som.width, som.num_units), (7, 7, 49))
+        self.assertTrue(torch.equal(som.X, _digits(standardize=False)))
+
+    def test_changed_unit_count_is_logged(self):
+        torch.manual_seed(0)
+        X = torch.randn(300, 4) * torch.tensor([4.0, 1.0, 1.0, 1.0])
+        logger = logging.getLogger(RSOM.__module__)
+        with self.assertLogs(logger, level="WARNING") as logs:
+            som = RSOM(X, num_units=49)
+        self.assertEqual(som.num_units, 52)
+        self.assertIn("52", "\n".join(logs.output))

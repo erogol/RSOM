@@ -125,17 +125,22 @@ class RSOM(torch.nn.Module):
         self.W.data = self.W.data / torch.norm(self.W.data, dim=1, keepdim=True)
 
     def _estimate_map_shape(self):
+        requested_units = self.num_units
         if self.height is None or self.width is None:
-            u, s, v = torch.svd(self.X)
+            # Center the data for the shape estimate only. Without this, the
+            # first singular value follows the data mean, not the data spread.
+            s = torch.linalg.svdvals(self.X - self.X.mean(0))
             ratio = s[0] / s[1]
             self.height = min(
                 self.num_units, int(np.ceil(np.sqrt(self.num_units / ratio)))
             )
             self.width = int(np.ceil(self.num_units / self.height))
         self.num_units = self.height * self.width
-        logging.info(
-            f"Estimated map size is -> height = {self.height}, width = {self.width}"
-        )
+        if self.num_units != requested_units:
+            logger.warning(
+                f"The map has {self.num_units} units (height = {self.height}, "
+                f"width = {self.width}), not the requested {requested_units}."
+            )
 
     def unit_cords(self, index: int) -> Tuple[int, int]:
         return index % self.width, index // self.width
