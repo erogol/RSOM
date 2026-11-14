@@ -4,11 +4,8 @@ Rectifying Self Organazing Maps a.k.a RSOM
 RSOM is a clustering and outlier detection method that is predicated with
 old Self Organazing Maps.
 
-It includes Batch and Stochastic learning rules. There are two different
-implementations. One is based on Numpy and tthe other is Theano. If you have
-tall and wide data matrix, we suggest to use Theano version. Otherwise
-Numpy version is faster. You can also use GPU with Theano but you need to
-set Theano configurations.
+This module is a PyTorch implementation. It includes full-batch and
+mini-batch learning rules.
 
 For more detail about RSOM refer to http://arxiv.org/abs/1312.4384
 
