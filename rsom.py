@@ -61,7 +61,7 @@ class RSOM(torch.nn.Module):
 
         Args:
             data: Input data.
-            num_units: Number of units.
+            num_units: Number of units. When height and width are given, it is set to height * width.
             height: Height of the map.
             width: Width of the map.
             alpha_max: Maximum learning rate.
@@ -120,7 +120,7 @@ class RSOM(torch.nn.Module):
                 self.num_units, int(np.ceil(np.sqrt(self.num_units / ratio)))
             )
             self.width = int(np.ceil(self.num_units / self.height))
-            self.num_units = self.height * self.width
+        self.num_units = self.height * self.width
         logging.info(
             f"Estimated map size is -> height = {self.height}, width = {self.width}"
         )

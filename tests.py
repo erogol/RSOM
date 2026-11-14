@@ -19,6 +19,13 @@ class TestSOM(unittest.TestCase):
         self.assertEqual(self.som.width, 5)
         self.assertEqual(self.som.W.shape, (25, 10))
 
+    def test_num_units_follows_height_and_width(self):
+        som = RSOM(self.data, height=5, width=5)
+        self.assertEqual(som.num_units, 25)
+        self.assertEqual(som.W.shape, (25, 10))
+        som.train_batch(num_epoch=3, verbose=False)
+        self.assertEqual(som.ins_unit_assign.shape, (100,))
+
     def test_normalize_weights(self):
         self.som._normalize_weights()
         norms = torch.norm(self.som.W.data, dim=1)
