@@ -1,1 +1,1 @@
-from .som import SOM
+from .rsom import RSOM
