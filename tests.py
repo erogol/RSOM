@@ -224,6 +224,23 @@ class TestUnitSaliency(unittest.TestCase):
         expected = (beta1 + z1) / 0.5 + (beta2 + z2) / 0.25
         self.assertTrue(torch.allclose(som.unit_saliency_coeffs, expected))
 
+    def test_train_batch_passes_h_with_the_learning_rate(self):
+        som = _build(
+            torch.randn(40, 3), 0, num_units=4, height=2, width=2, alpha_max=0.3, alpha_min=0.1
+        )
+        calls = []
+        update_unit_saliency = som._update_unit_saliency
+
+        def spy(win_counts, update_rate, learn_rate):
+            calls.append((update_rate.diagonal().clone(), learn_rate))
+            return update_unit_saliency(win_counts, update_rate, learn_rate)
+
+        som._update_unit_saliency = spy
+        som.train_batch(num_epoch=3, verbose=False)
+        self.assertEqual(len(calls), 3)
+        for diagonal, learn_rate in calls:
+            self.assertTrue(torch.allclose(diagonal, torch.full((4,), learn_rate)))
+
     def test_unit_scores_are_normalized_after_training(self):
         som = _build(_digits(), 0, num_units=49, height=7, width=7)
         som.train_batch(num_epoch=5, batch_size=256, verbose=False)
