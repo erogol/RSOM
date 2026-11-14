@@ -4,9 +4,12 @@ import torch
 
 from rsom import RSOM
 
+torch.set_num_threads(1)
+
 
 class TestSOM(unittest.TestCase):
     def setUp(self):
+        torch.manual_seed(0)
         self.data = torch.randn(100, 10)
         self.som = RSOM(self.data, num_units=25, height=5, width=5)
 
@@ -28,7 +31,7 @@ class TestSOM(unittest.TestCase):
     def test_euq_dist(self):
         X = self.data[:5]
         X2 = (X**2).sum(1).unsqueeze(1)
-        D = self.som._euq_dist(X2, X)
+        D = self.som._euclidean_distance(X, X2)
         self.assertEqual(D.shape, (25, 5))
 
     def test_find_neighbors(self):
