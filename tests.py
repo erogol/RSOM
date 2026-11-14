@@ -334,7 +334,7 @@ class TestSmallPoints(unittest.TestCase):
 
     def test_import_does_not_configure_logging(self):
         module = sys.modules[RSOM.__module__]
-        code = f"import logging, {module.__name__}; print(len(logging.getLogger().handlers))"
+        code = "import logging, rsom; print(len(logging.getLogger().handlers))"
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
@@ -343,3 +343,7 @@ class TestSmallPoints(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "0")
+
+
+if __name__ == "__main__":
+    unittest.main()
