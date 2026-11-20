@@ -5,7 +5,7 @@ from sklearn.datasets import load_digits
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-from som import SOM
+from rsom import RSOM
 
 
 def quantization_error(som, data):
@@ -19,7 +19,7 @@ def grid_search_som(data, unit_range, epochs=1000, alpha_max=0.05, trials=3):
     for num_units in tqdm(unit_range, desc="Grid Search"):
         trial_errors = []
         for _ in range(trials):
-            som = SOM(data, num_units=num_units, alpha_max=alpha_max)
+            som = RSOM(data, num_units=num_units, alpha_max=alpha_max)
             som.train_batch(num_epoch=epochs, verbose=False)
             error = quantization_error(som, data)
             trial_errors.append(error.item())
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     plt.show()
 
     # Train the SOM with the elbow point number of units
-    best_som = SOM(data, num_units=int(elbow_units), alpha_max=0.05)
+    best_som = RSOM(data, num_units=int(elbow_units), alpha_max=0.05)
     best_som.train_batch(num_epoch=1000, verbose=True)
 
     # Evaluate on test set

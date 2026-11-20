@@ -1,4 +1,4 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -12,7 +12,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/erogol/RSOM",
-    packages=find_packages(exclude=["tests*", "examples*"]),
+    py_modules=["rsom"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
