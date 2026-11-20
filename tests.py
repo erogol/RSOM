@@ -294,6 +294,34 @@ class TestUnitSaliency(unittest.TestCase):
         som.train_batch(num_epoch=30, verbose=False)
         self.assertGreater(som.inst_saliency.float().mean(), 0.5)
 
+    def test_unit_threshold_sensitivity(self):
+        # B8: the README table of outlier_unit_thresh (planted noise, 7x7 map, full batch, 200 epochs).
+        # The threshold is used only after training, so one trained map serves all thresholds.
+        rng = np.random.default_rng(0)
+        centers = rng.uniform(-6, 6, size=(5, 10))
+        inl = centers[rng.integers(0, 5, 2000)] + rng.normal(0, 1, (2000, 10))
+        noise = rng.uniform(-10, 10, size=(200, 10))
+        X = torch.from_numpy(np.vstack([inl, noise]).astype(np.float32))
+        is_noise = torch.cat([torch.zeros(2000, dtype=torch.bool), torch.ones(200, dtype=torch.bool)])
+        som = _build(X, 0, num_units=49, height=7, width=7)
+        som.train_batch(num_epoch=200, verbose=False)
+        f1, units = {}, {}
+        for thresh in (0.25, 0.5, 1.0):
+            som.outlier_unit_thresh = thresh
+            som._find_outlier_units()
+            som._find_inunit_outliers()
+            flagged = ~som.inst_saliency
+            tp = (flagged & is_noise).sum().item()
+            precision = tp / max(flagged.sum().item(), 1)
+            recall = tp / is_noise.sum().item()
+            f1[thresh] = 2 * precision * recall / max(precision + recall, 1e-9)
+            units[thresh] = (~som.unit_saliency).sum().item()
+        self.assertLessEqual(units[0.25], units[0.5])
+        self.assertLessEqual(units[0.5], units[1.0])
+        self.assertGreater(f1[0.5], 0.85)
+        self.assertGreater(f1[0.5], f1[0.25])
+        self.assertGreater(f1[0.5], f1[1.0])
+
     def test_unit_scores_are_normalized_after_training(self):
         som = _build(_digits(), 0, num_units=49, height=7, width=7)
         som.train_batch(num_epoch=5, batch_size=256, verbose=False)
