@@ -63,10 +63,11 @@ class RSOM(torch.nn.Module):
             height: Height of the map.
             width: Width of the map.
             alpha_max: Learning rate at the first epoch.
-            alpha_min: Learning rate at the end of the linear decrease. In mini-batch mode, alpha is the
-                step size of each weight update: W <- W + alpha * (M - W), where M is the
-                neighbourhood-weighted mean of the batch. A larger alpha follows the last batches more
-                closely. Full-batch mode does not use alpha for the weights (see train_batch).
+            alpha_min: Learning rate at the end of the linear decrease. In mini-batch mode, each weight
+                update is W <- W + step * (M - W), where M is the neighbourhood-weighted mean of the batch
+                and step = alpha + (1 - alpha) * B / N (B: batch size, N: number of samples). A larger
+                alpha follows the last batches more closely. Full-batch mode does not use alpha for the
+                weights (see train_batch).
             set_count_activations: Whether to count activations.
             set_outlier_unit_det: Whether to detect outlier units.
             set_inunit_outlier_det: Whether to detect in-unit outliers.
@@ -240,7 +241,9 @@ class RSOM(torch.nn.Module):
         in the unit saliency scores (rho = 1 / alpha, paper Eq. 3), so later epochs count more.
 
         Mini-batch mode moves each unit toward the neighbourhood-weighted mean M of the batch:
-        W <- W + alpha * (M - W). alpha decreases linearly from alpha_max toward alpha_min.
+        W <- W + step * (M - W), with step = alpha + (1 - alpha) * B / N. alpha decreases linearly
+        from alpha_max toward alpha_min. The B / N term keeps large batches (few steps per epoch) from
+        moving the units too little.
 
         Args:
             num_epoch: number of epochs to train
@@ -292,7 +295,10 @@ class RSOM(torch.nn.Module):
                 means = torch.mm(A[:, non_zeros].t(), batch_data)
                 means = means / S[non_zeros].unsqueeze(1)
 
-                step_size = 1.0 if full_batch else learn_rate
+                # The batch share B / N raises the step for large batches, so few steps per epoch
+                # still move the units. A batch of all samples gets step 1, as in full-batch mode.
+                share = batch_data.shape[0] / self.X.shape[0]
+                step_size = 1.0 if full_batch else learn_rate + (1 - learn_rate) * share
                 self.W.data[non_zeros] = torch.lerp(
                     self.W.data[non_zeros], means, step_size
                 )

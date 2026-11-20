@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 import warnings
 
 import numpy as np
@@ -154,12 +155,35 @@ class TestAlphaAndMiniBatch(unittest.TestCase):
         b, _ = self._train(alpha_max=0.9, alpha_min=0.5)
         self.assertGreater((a.W - b.W).abs().max().item(), 1e-2)
 
-    def test_alpha_is_the_minibatch_step_size(self):
-        # For a very small alpha, the weights move in proportion to alpha.
-        a, w0 = self._train(num_epoch=1, alpha_max=1e-4, alpha_min=1e-4)
-        b, _ = self._train(num_epoch=1, alpha_max=2e-4, alpha_min=2e-4)
-        ratio = (b.W.detach() - w0).norm() / (a.W.detach() - w0).norm()
-        self.assertAlmostEqual(ratio.item(), 2.0, delta=0.05)
+    def test_minibatch_step_is_alpha_plus_the_batch_share(self):
+        # step = alpha + (1 - alpha) * B / N for each batch, also for the short last batch.
+        steps = []
+        lerp = torch.lerp
+
+        def spy(start, end, weight):
+            steps.append(weight)
+            return lerp(start, end, weight)
+
+        with unittest.mock.patch.object(torch, "lerp", spy):
+            self._train(num_epoch=1, alpha_max=0.1, alpha_min=0.1)
+        n = self.X.shape[0]
+        sizes = [128] * (n // 128) + ([n % 128] if n % 128 else [])
+        expected = [0.1 + 0.9 * b / n for b in sizes]
+        self.assertEqual(len(steps), len(expected))
+        for got, want in zip(steps, expected):
+            self.assertAlmostEqual(got, want, places=6)
+
+    def test_full_batch_step_is_one(self):
+        steps = []
+        lerp = torch.lerp
+
+        def spy(start, end, weight):
+            steps.append(weight)
+            return lerp(start, end, weight)
+
+        with unittest.mock.patch.object(torch, "lerp", spy):
+            self._train(batch_size=None, num_epoch=2, alpha_max=0.1, alpha_min=0.1)
+        self.assertEqual(steps, [1.0, 1.0])
 
     def test_full_batch_weights_do_not_use_alpha(self):
         a, _ = self._train(batch_size=None, num_epoch=10, alpha_max=0.05, alpha_min=0.001)
