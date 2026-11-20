@@ -253,6 +253,23 @@ class TestUnitSaliency(unittest.TestCase):
         for diagonal, learn_rate in calls:
             self.assertTrue(torch.allclose(diagonal, torch.full((4,), learn_rate)))
 
+    def test_outlier_group_share_flags_a_dense_far_group(self):
+        rng = np.random.default_rng(0)
+        centers = rng.uniform(-3, 3, size=(5, 10))
+        inl = centers[rng.integers(0, 5, 950)] + rng.normal(0, 1, (950, 10))
+        blob = np.full((1, 10), 12.0) + rng.normal(0, 0.3, (50, 10))
+        X = torch.from_numpy(np.vstack([inl, blob]).astype(np.float32))
+        som = _build(X, 0, num_units=25, height=5, width=5, outlier_group_share=0.1)
+        som.train_batch(num_epoch=100, verbose=False)
+        flagged = ~som.inst_saliency
+        self.assertTrue(flagged[950:].all())
+        self.assertLess(flagged[:950].float().mean(), 0.1)
+
+    def test_outlier_group_share_never_flags_the_largest_group(self):
+        som = _build(torch.randn(300, 4), 0, num_units=16, height=4, width=4, outlier_group_share=1.0)
+        som.train_batch(num_epoch=30, verbose=False)
+        self.assertGreater(som.inst_saliency.float().mean(), 0.5)
+
     def test_unit_scores_are_normalized_after_training(self):
         som = _build(_digits(), 0, num_units=49, height=7, width=7)
         som.train_batch(num_epoch=5, batch_size=256, verbose=False)
