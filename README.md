@@ -53,7 +53,8 @@ salient_units = som.salient_units()
 ## Training modes and the learning rate
 
 - **Full batch** (`batch_size=None`): the classic batch SOM. Each epoch sets each unit to the neighbourhood-weighted mean of the data. This mode does not use `alpha_max` and `alpha_min` for the weights.
-- **Mini-batch** (`batch_size=B`): each step moves each unit toward the neighbourhood-weighted mean `M` of the batch: `W <- W + alpha * (M - W)`. `alpha` decreases linearly from `alpha_max` toward `alpha_min`. A larger `alpha` follows the last batches more closely. If one epoch has only a few steps (large `B`), use a larger `alpha` or more epochs.
+- **Mini-batch** (`batch_size=B`): each step moves each unit toward the neighbourhood-weighted mean `M` of the batch: `W <- W + step * (M - W)`, with `step = alpha + (1 - alpha) * B / N` (`N`: number of samples). `alpha` decreases linearly from `alpha_max` toward `alpha_min`. A larger `alpha` follows the last batches more closely. The `B / N` term makes the step larger for large batches, which have only a few steps per epoch. On the standardized digits data (100 epochs, 3 seeds), the quantization error with batch 512 is 21.84 (without this term: 27.96; full batch: 24.07). For large batches, the step has a floor of `B / N`, so `alpha` has only a small effect on the weights (batch 512 of 1797: step 0.32 at the start, 0.29 at the end). The saliency weights still use `rho = 1 / alpha`, not the real step. This step rule is not in the paper.
+- Do not raise `alpha` only to fix the quantization error: `alpha` also sets the saliency weights. With `alpha_max=0.5, alpha_min=0.05`, the outlier F1 on the noise test fell from 0.880 to 0.812 (full batch) and from 0.864 to 0.683 (batch 128).
 - In the two modes, `alpha` sets the weight of each epoch in the unit saliency scores (`rho = 1 / alpha`, Eq. 3 of the paper).
 
 ## Outlier detection
