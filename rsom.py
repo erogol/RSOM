@@ -53,6 +53,7 @@ class RSOM(torch.nn.Module):
         log_full_data_cost: bool = False,
         steps_to_full_data_cost: int = -1,  # TODO: number of steps to compute full data cost
         inunit_whisker_factor: float = 1.5,
+        outlier_group_share: Optional[float] = None,
     ):
         """Rectifying Self Organizing Maps. RSOM is a clustering and outlier detection method that is predicated with old Self Organizing Maps.
 
@@ -81,6 +82,11 @@ class RSOM(torch.nn.Module):
                 an outlier when its distance to its unit is above the Tukey upper whisker
                 Q3 + factor * (Q3 - Q1) of the distances in the unit. The rule uses the distances as stored in
                 ins_unit_dist (the squared distance for dist="euclidean").
+            outlier_group_share: If given, also flag dense unrelated groups. The rule builds a minimum
+                spanning tree over the units that hold samples and cuts the edges longer than
+                Q3 + 3 * (Q3 - Q1) of the edge lengths. A part of the tree with less than this share of
+                the samples is an outlier group. A small real cluster can also be flagged. None turns the
+                rule off.
 
         """
 
@@ -97,6 +103,7 @@ class RSOM(torch.nn.Module):
         self.outlier_unit_thresh = outlier_unit_thresh
         self.inunit_outlier_thresh = inunit_outlier_thresh
         self.inunit_whisker_factor = inunit_whisker_factor
+        self.outlier_group_share = outlier_group_share
         self.log_full_data_cost = log_full_data_cost
 
         self._estimate_map_shape()
@@ -307,6 +314,9 @@ class RSOM(torch.nn.Module):
         if self.set_outlier_unit_det:
             self._find_outlier_units()
 
+        if self.outlier_group_share is not None:
+            self._find_outlier_groups()
+
         if self.set_inunit_outlier_det:
             self._find_inunit_outliers()
 
@@ -364,6 +374,54 @@ class RSOM(torch.nn.Module):
         outlier_units = torch.where(self.unit_saliency == False)[0]
         for i in outlier_units:
             self.inst_saliency[torch.where(self.ins_unit_assign == i)[0]] = False
+
+    def _find_outlier_groups(self):
+        """Flag the units of each small, far group (see outlier_group_share) and their samples."""
+        if self.inst_saliency.numel() == 0:
+            self.inst_saliency = torch.ones(self.X.shape[0], dtype=torch.bool)
+        # The tree has at most num_units nodes, so compute it on the CPU.
+        sizes = torch.bincount(self.ins_unit_assign.cpu(), minlength=self.num_units)
+        used = torch.where(sizes > 0)[0]
+        if len(used) < 3:
+            return
+        W = self.W.data.cpu()[used]
+        dist = torch.cdist(W, W)
+        # Prim's algorithm: edges of the minimum spanning tree as (parent, child, length).
+        in_tree = torch.zeros(len(used), dtype=torch.bool)
+        in_tree[0] = True
+        best, parent = dist[0].clone(), torch.zeros(len(used), dtype=torch.long)
+        edges = []
+        for _ in range(len(used) - 1):
+            child = int(torch.where(in_tree, torch.inf, best).argmin())
+            edges.append((int(parent[child]), child, float(best[child])))
+            in_tree[child] = True
+            closer = dist[child] < best
+            parent[closer] = child
+            best = torch.minimum(best, dist[child])
+        q1, q3 = np.quantile([e[2] for e in edges], [0.25, 0.75])
+        cut = q3 + 3.0 * (q3 - q1)
+        root = list(range(len(used)))
+
+        def find(a: int) -> int:
+            while root[a] != a:
+                a = root[a]
+            return a
+
+        for a, b, length in edges:
+            if length <= cut:
+                root[find(a)] = find(b)
+        groups = torch.tensor([find(i) for i in range(len(used))])
+        group_ids = torch.unique(groups)
+        group_sizes = torch.stack([sizes[used[groups == g]].sum() for g in group_ids])
+        largest = group_ids[group_sizes.argmax()]
+        for g, size in zip(group_ids, group_sizes):
+            # The largest group is the main data and is never an outlier group.
+            if g == largest or size >= self.outlier_group_share * self.X.shape[0]:
+                continue
+            members = used[groups == g]
+            self.unit_saliency[members.to(self.unit_saliency.device)] = False
+            mask = torch.isin(self.ins_unit_assign, members.to(self.ins_unit_assign.device))
+            self.inst_saliency[mask.to(self.inst_saliency.device)] = False
 
     def _find_inunit_outliers(self):
         if self.inst_saliency.numel() == 0:

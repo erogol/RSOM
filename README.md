@@ -76,7 +76,7 @@ Start with the default 0.5. Then examine the number of outlier units, `(~som.uni
 
 ### Known limits
 
-- The unit score follows the number of samples of a unit and of its neighbours (Spearman correlation with the cluster size: 0.96 on the synthetic data above). Thus a dense group of unrelated samples stays salient. In a test with 1900 samples in 5 clusters and a tight far group of 100 samples, 98 % of the far group stayed salient, and its unit had the highest score in 5 of 5 seeds. RSOM removes sparse noise; it does not remove a dense unrelated cluster.
+- The unit score follows the number of samples of a unit and of its neighbours (Spearman correlation with the cluster size: 0.96 on the synthetic data above). Thus a dense group of unrelated samples stays salient. In a test with 1900 samples in 5 clusters and a tight far group of 100 samples, 98 % of the far group stayed salient, and its unit had the highest score in 5 of 5 seeds. RSOM removes sparse noise; it does not remove a dense unrelated cluster. To flag such a group, set `outlier_group_share` (for example 0.1). This rule cuts long edges in a minimum spanning tree of the units and flags each part with less than this share of the samples. In the test above, it flagged 100 % of the far group in 5 of 5 seeds, with no change in F1 or in the clean flagged share. It does not flag a group above the share (for example 300 of 2200 samples). It can also flag a small real cluster: on the digits data, it flagged 1.2 % more samples.
 - The results above are from synthetic data and the digits data on CPU. The image experiments of the paper were not repeated with this code.
 
 
